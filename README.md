@@ -1,2 +1,3 @@
 # discordbot
-Discord Bot Portal JP 専属bot
+
+Discord Bot Portal JP 専属Bot
