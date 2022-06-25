@@ -1,0 +1,14 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+"discord.py" = {ref = "master", git = "https://github.com/Rapptz/discord.py"}
+python-dotenv = "*"
+Daug = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"
