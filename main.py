@@ -20,6 +20,7 @@ class MyBot(commands.Bot):
     async def setup_hook(self):
         for extension in extensions:
             await self.load_extension(f'extensions.{extension}')
+        await self.tree.sync()
 
 
 def main():

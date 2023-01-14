@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-"discord.py" = {ref = "master", git = "https://github.com/Rapptz/discord.py"}
+"discord.py" = "*"
 python-dotenv = "*"
 Daug = "*"
 
