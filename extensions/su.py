@@ -32,9 +32,9 @@ class SuCog(commands.Cog):
     @excepter
     async def authorization(self, interaction: discord.Interaction):
         permission_role = None
-        if self.is_staff(interaction.author):
+        if is_staff(interaction.author):
             permission_role = interaction.guild.get_role(STAFF_PERMISSION_ROLE_ID)
-        elif self.is_committer(interaction.author):
+        elif is_committer(interaction.author):
             permission_role = interaction.guild.get_role(COMMITTER_PERMISSION_ROLE_ID)
         if permission_role is None:
             await interaction.response.send_message(
