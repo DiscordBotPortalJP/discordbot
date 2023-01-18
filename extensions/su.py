@@ -26,11 +26,11 @@ class SuCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name='su')
-    @app_commands.guilds(GUILD)
+    @app_commands.command(name='su', description='運営/Committer権限を一時的に付与します')
+    @app_commands.guilds(GUILD_ID)
+    @app_commands.guild_only()
     @excepter
     async def authorization(self, interaction: discord.Interaction):
-        """運営/Committer権限を一時的に付与します"""
         permission_role = None
         if self.is_staff(interaction.author):
             permission_role = interaction.guild.get_role(STAFF_PERMISSION_ROLE_ID)
@@ -52,6 +52,6 @@ class SuCog(commands.Cog):
         await interaction.user.remove_roles(permission_role)
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(SuCog(bot))
     await bot.tree.sync(guild=GUILD)
