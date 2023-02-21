@@ -4,23 +4,18 @@ from discord import app_commands
 from discord.ext import commands
 from utils.dpyexcept import excepter
 from constant import GUILD_ID
+from constant import ROLE_STAFF_ID
+from constant import ROLE_STAFF_PERMISSION_ID
+from constant import ROLE_COMMITTER_ID
+from constant import ROLE_COMMITTER_PERMISSION_ID
 
 EXPIRATION_MINUTES = 600  # 解除までの時間
-COMMITTER_ROLE_ID = 704548043537645621
-COMMITTER_PERMISSION_ROLE_ID = 858642308642897921
-STAFF_ROLE_ID = 741325667550887946
-STAFF_PERMISSION_ROLE_ID = 834963970615934996
-
-GUILD = discord.Object(id=GUILD_ID)
-
-
-def is_committer(author) -> bool:
-    return COMMITTER_ROLE_ID in [role.id for role in author.roles]
-
 
 def is_staff(author) -> bool:
-    return STAFF_ROLE_ID in [role.id for role in author.roles]
+    return ROLE_STAFF_ID in [role.id for role in author.roles]
 
+def is_committer(author) -> bool:
+    return ROLE_COMMITTER_ID in [role.id for role in author.roles]
 
 class SuCog(commands.Cog):
     def __init__(self, bot):
@@ -33,9 +28,9 @@ class SuCog(commands.Cog):
     async def authorization(self, interaction: discord.Interaction):
         permission_role = None
         if is_staff(interaction.user):
-            permission_role = interaction.guild.get_role(STAFF_PERMISSION_ROLE_ID)
+            permission_role = interaction.guild.get_role(ROLE_STAFF_PERMISSION_ID)
         elif is_committer(interaction.user):
-            permission_role = interaction.guild.get_role(COMMITTER_PERMISSION_ROLE_ID)
+            permission_role = interaction.guild.get_role(ROLE_COMMITTER_PERMISSION_ID)
         if permission_role is None:
             await interaction.response.send_message(
                 '付与できる権限がありません',
@@ -54,4 +49,3 @@ class SuCog(commands.Cog):
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(SuCog(bot))
-    await bot.tree.sync(guild=GUILD)

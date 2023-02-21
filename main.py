@@ -1,27 +1,28 @@
 import discord
 from discord.ext import commands
-from constant import APPLICATION_ID
 from constant import TOKEN
+from constant import GUILD_ID
 
 extensions = (
+    'favorite',
+    'join',
+    'leave',
     'su',
 )
-
 
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(
-            command_prefix='$',
+            command_prefix=commands.when_mentioned_or('$ '),
             help_command=None,
             intents=discord.Intents.all(),
-            application_id=APPLICATION_ID,
         )
 
     async def setup_hook(self):
         for extension in extensions:
             await self.load_extension(f'extensions.{extension}')
-        # await self.tree.sync()
-
+        await self.tree.sync(guild=discord.Object(id=GUILD_ID))
+        await self.tree.sync()
 
 def main():
     MyBot().run(TOKEN)
