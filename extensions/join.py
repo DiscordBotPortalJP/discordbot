@@ -1,5 +1,6 @@
 from discord.ext import commands
 from utils.dpyexcept import excepter
+from constant import GUILD_ID
 from constant import ROLE_MEMBER_ID
 from constant import ROLE_BOT_LIMITED_ID
 
@@ -11,7 +12,7 @@ class JoinCog(commands.Cog):
     @commands.Cog.listener()
     @excepter
     async def on_member_join(self, member):
-        if member.guild.id != self.id:
+        if member.guild.id != GUILD_ID:
             return
         if member.bot:
             role_bot_limited = member.guild.get_role(ROLE_BOT_LIMITED_ID)
