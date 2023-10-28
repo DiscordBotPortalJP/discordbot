@@ -1,9 +1,12 @@
-import traceback
+from datetime import datetime
 from functools import wraps
-from constant import LOG_CHANNEL_ID
+import traceback
+import discord
+from discord.ext import commands
+from constant import CHANNEL_LOG_TRACEBACK_ID
 
 
-def excepter(func):
+def excepter(func, *, _channel_id=None):
     @wraps(func)
     async def wrapped(self, *args, **kwargs):
         try:
@@ -11,5 +14,19 @@ def excepter(func):
         except Exception as e:
             orig_error = getattr(e, 'original', e)
             error_msg = ''.join(traceback.TracebackException.from_exception(orig_error).format())
-            await self.bot.get_channel(LOG_CHANNEL_ID).send(f'```python\n{error_msg}\n```')
+
+            channel_id = _channel_id or CHANNEL_LOG_TRACEBACK_ID
+            if len(args) >= 1 and isinstance(args[0], discord.Interaction):
+                interaction: discord.Interaction = args[0]
+                channel = interaction.client.get_channel(channel_id)
+            else:
+                bot: commands.Bot = self.bot
+                channel = bot.get_channel(channel_id)
+
+            if channel:
+                embed = discord.Embed()
+                embed.add_field(name='class', value=self.__class__.__name__)
+                embed.add_field(name='function', value=func.__name__)
+                embed.add_field(name='datetime', value=datetime.now().strftime('%Y/%m/%d %H:%M:%S.%f'))
+                await channel.send(f'```python\n{error_msg}\n```', embed=embed)
     return wrapped
