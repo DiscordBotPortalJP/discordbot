@@ -7,6 +7,7 @@ extensions = (
     'favorite',
     'join',
     'leave',
+    'notion',
     'scrapbox',
     'su',
 )

@@ -1,4 +1,3 @@
-import aiohttp
 import discord
 import urllib.parse
 from discord import app_commands
