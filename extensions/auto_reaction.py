@@ -3,6 +3,7 @@ from discord.ext import commands
 from utils.dpyexcept import excepter
 from constant import GUILD_ID
 
+
 class AutoReactionCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -25,9 +26,13 @@ class AutoReactionCog(commands.Cog):
         if message.author.bot:
             if message.channel.id != 645663048778121226: #新着記事
                 return
+        # BOT制作情報共有, BOT制作質問
+        if message.channel.category.id not in [843437704842706974, 828467376218570772]:
+            return
         emojis = await self.fetch_emojis()
         for emoji in emojis:
             await message.add_reaction(emoji)
+
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(AutoReactionCog(bot))
