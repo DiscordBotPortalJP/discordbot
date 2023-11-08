@@ -27,7 +27,7 @@ class AutoReactionCog(commands.Cog):
             if message.channel.id != 645663048778121226: #新着記事
                 return
         # BOT制作情報共有, BOT制作質問
-        if message.channel.category.id not in [843437704842706974, 828467376218570772]:
+        if message.channel.category_id not in [843437704842706974, 828467376218570772]:
             return
         emojis = await self.fetch_emojis()
         for emoji in emojis:
