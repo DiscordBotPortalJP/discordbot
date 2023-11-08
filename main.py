@@ -4,6 +4,7 @@ from constant import TOKEN
 from constant import GUILD_ID
 
 extensions = (
+    'auto_reaction',
     'favorite',
     'join',
     'leave',
