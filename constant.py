@@ -3,6 +3,11 @@ from os import getenv
 
 load_dotenv()
 
+def _parse_int_list(value, default):
+    if not value:
+        return default
+    return [int(item.strip()) for item in value.split(',') if item.strip()]
+
 TOKEN = getenv('DISCORD_BOT_TOKEN')
 NOTION_API_KEY = getenv('NOTION_API_KEY')
 NOTION_DATABASE_ID = getenv('NOTION_DATABASE_ID')
@@ -21,3 +26,7 @@ ROLE_COMMITTER_ID = int(getenv('ROLE_COMMITTER_ID', 704548043537645621))
 ROLE_COMMITTER_PERMISSION_ID = int(getenv('ROLE_COMMITTER_PERMISSION_ID', 858642308642897921))
 ROLE_STAFF_ID = int(getenv('ROLE_STAFF_ID', 741325667550887946))
 ROLE_STAFF_PERMISSION_ID = int(getenv('ROLE_STAFF_PERMISSION_ID', 834963970615934996))
+LOG_EXPORT_GUILD_IDS = _parse_int_list(getenv('LOG_EXPORT_GUILD_IDS'), [GUILD_ID, GUILD_LOGS_ID])
+LOG_EXPORT_OPERATOR_ROLE_IDS = _parse_int_list(getenv('LOG_EXPORT_OPERATOR_ROLE_IDS'), [ROLE_STAFF_ID, ROLE_COMMITTER_ID])
+LOG_EXPORT_MAX_MESSAGES = int(getenv('LOG_EXPORT_MAX_MESSAGES', 200))
+LOG_EXPORT_DEFAULT_DAYS = int(getenv('LOG_EXPORT_DEFAULT_DAYS', 30))
