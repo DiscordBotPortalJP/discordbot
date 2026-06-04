@@ -327,8 +327,14 @@ def collect_channel_context(channel: discord.abc.GuildChannel) -> str:
 
 
 def channel_type_name(channel: discord.abc.GuildChannel) -> str:
+    if isinstance(channel, discord.CategoryChannel):
+        return 'category'
     if isinstance(channel, discord.ForumChannel):
         return 'forum'
+    if isinstance(channel, discord.VoiceChannel):
+        return 'voice'
+    if isinstance(channel, discord.StageChannel):
+        return 'stage'
     if isinstance(channel, discord.TextChannel):
         return 'text'
     return channel.__class__.__name__
@@ -510,6 +516,138 @@ def build_report_file(payload: dict) -> discord.File:
     return discord.File(io.BytesIO(body), filename=filename)
 
 
+def view_state_for_everyone(target, guild: discord.Guild) -> str:
+    value = target.overwrites_for(guild.default_role).view_channel
+    if value is False:
+        return 'off'
+    if value is True:
+        return 'on'
+    return 'inherit'
+
+
+def channel_record(channel: discord.abc.GuildChannel, guild: discord.Guild) -> dict:
+    return {
+        'id': str(channel.id),
+        'name': channel.name,
+        'type': channel_type_name(channel),
+        'position': channel.position,
+        'everyone_view': view_state_for_everyone(channel, guild),
+    }
+
+
+def build_channel_inventory(guild: discord.Guild) -> dict:
+    sections = []
+    for category, channels in guild.by_category():
+        category_payload = None
+        if category is not None:
+            category_payload = channel_record(category, guild)
+
+        channel_payloads = []
+        for channel in channels:
+            channel_payload = channel_record(channel, guild)
+            channel_payload['category_id'] = str(category.id) if category is not None else None
+            channel_payload['category_name'] = category.name if category is not None else None
+            channel_payloads.append(channel_payload)
+
+        sections.append(
+            {
+                'category': category_payload,
+                'channels': channel_payloads,
+            }
+        )
+
+    return {
+        'guild_id': str(guild.id),
+        'guild_name': guild.name,
+        'channel_count': sum(len(section['channels']) for section in sections),
+        'category_count': sum(1 for section in sections if section['category'] is not None),
+        'sections': sections,
+    }
+
+
+async def build_channel_inventory_payload(bot: commands.Bot, guild_ids: list[int]) -> dict:
+    now = datetime.datetime.now(datetime.timezone.utc)
+    payload = {
+        'generated_at': now.isoformat(),
+        'generated_at_file': now.strftime('%Y%m%d%H%M%S'),
+        'source': 'discord.py guild.by_category read-only',
+        'guilds': [],
+    }
+    for guild_id in guild_ids:
+        guild = bot.get_guild(guild_id)
+        if guild is None:
+            payload['guilds'].append(
+                {
+                    'guild_id': str(guild_id),
+                    'guild_name': 'unknown',
+                    'channel_count': 0,
+                    'category_count': 0,
+                    'sections': [],
+                    'error': 'guild-not-found',
+                }
+            )
+            continue
+        payload['guilds'].append(build_channel_inventory(guild))
+    return payload
+
+
+def build_channel_inventory_markdown(payload: dict) -> str:
+    lines = [
+        '# チャンネル一覧',
+        '',
+        f"- generated_at: {payload['generated_at']}",
+        f"- source: {payload['source']}",
+        '- safety: read-only; no category/channel/permission mutation',
+        '',
+    ]
+    for guild_payload in payload['guilds']:
+        lines.extend(
+            [
+                f"## {guild_payload['guild_name']} ({guild_payload['guild_id']})",
+                f"- categories: {guild_payload['category_count']}",
+                f"- channels: {guild_payload['channel_count']}",
+                '',
+            ]
+        )
+        if guild_payload.get('error'):
+            lines.extend([f"- error: {guild_payload['error']}", ''])
+            continue
+
+        for section in guild_payload['sections']:
+            category = section['category']
+            if category is None:
+                lines.append('### 未分類')
+            else:
+                lines.append(
+                    f"### {category['name']} "
+                    f"(id: {category['id']}, everyone_view: {category['everyone_view']})"
+                )
+            for channel in section['channels']:
+                lines.append(
+                    f"- {channel['name']} "
+                    f"[{channel['type']}] "
+                    f"id: {channel['id']} "
+                    f"everyone_view: {channel['everyone_view']}"
+                )
+            lines.append('')
+    return '\n'.join(lines)
+
+
+def build_channel_inventory_summary(payload: dict) -> str:
+    totals = [
+        f"{guild['guild_name']}: {guild['category_count']}カテゴリ/{guild['channel_count']}チャンネル"
+        for guild in payload['guilds']
+    ]
+    return 'Bot経由でチャンネル一覧を読み取り専用で取得しました。' + ' / '.join(totals)
+
+
+def build_channel_inventory_file(payload: dict) -> discord.File:
+    report = build_channel_inventory_markdown(payload)
+    body = report.encode('utf-8')
+    filename = f"channel-inventory-{payload['generated_at_file']}.md"
+    return discord.File(io.BytesIO(body), filename=filename)
+
+
 class ArticleChannelAdminCog(commands.Cog):
     """記事化対象チャンネルの棚卸しと非公開カテゴリ化"""
 
@@ -598,6 +736,32 @@ class ArticleChannelAdminCog(commands.Cog):
             'guilds': [result],
         }
         await interaction.followup.send(content=build_summary(payload), file=build_report_file(payload), ephemeral=True)
+
+    @app_commands.command(name='チャンネル一覧エクスポート', description='Bot経由でサーバーのチャンネル一覧をMarkdown出力します')
+    @app_commands.guilds(discord.Object(id=GUILD_ID), discord.Object(id=GUILD_LOGS_ID))
+    @app_commands.guild_only()
+    @excepter
+    async def export_channel_inventory(
+        self,
+        interaction: discord.Interaction,
+        all_guilds: bool = True,
+    ):
+        guild = interaction.guild
+        if guild is None or guild.id not in ARTICLE_CHANNEL_AUDIT_GUILD_IDS:
+            await interaction.response.send_message('このサーバーではチャンネル一覧エクスポートを利用できません。', ephemeral=True)
+            return
+        if not isinstance(interaction.user, discord.Member) or not has_audit_permission(interaction.user):
+            await interaction.response.send_message('このコマンドを実行できる権限がありません。', ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        guild_ids = ARTICLE_CHANNEL_AUDIT_GUILD_IDS if all_guilds else [guild.id]
+        payload = await build_channel_inventory_payload(self.bot, guild_ids)
+        await interaction.followup.send(
+            content=build_channel_inventory_summary(payload),
+            file=build_channel_inventory_file(payload),
+            ephemeral=True,
+        )
 
 
 async def setup(bot: commands.Bot) -> None:
