@@ -38,6 +38,8 @@ PORTAL_TARGET_MARK = '✅'
 def has_export_permission(member: discord.Member) -> bool:
     if member.guild.owner_id == member.id:
         return True
+    if member.guild_permissions.manage_channels:
+        return True
     role_ids = {role.id for role in member.roles}
     return any(role_id in role_ids for role_id in LOG_EXPORT_OPERATOR_ROLE_IDS)
 
