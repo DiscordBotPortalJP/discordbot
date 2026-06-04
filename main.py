@@ -5,6 +5,7 @@ from constant import GUILD_ID
 from constant import GUILD_LOGS_ID
 
 extensions = (
+    'article_channel_admin',
     'auto_reaction',
     'community_log_export',
     'favorite',
