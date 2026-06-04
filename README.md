@@ -21,6 +21,7 @@ Discord Bot Portal JP 専属Bot
 - 一括エクスポートは、Discord Bot Portal JP ではカテゴリ名に `✅` を含むチャンネル、Discord Bot Portal JP Logs ではテキスト/フォーラムチャンネル全体を対象にします。
 - 一括エクスポートも読み取り専用です。カテゴリ作成、チャンネル移動、権限変更、メッセージ削除は実行しません。
 - Discord添付サイズを超える場合は、`days`、`limit_per_source`、`max_channels`、`max_forum_threads` を下げて再実行します。
+- 対象チャンネルが多い場合は、`channel_offset` を `0`、`80`、`160` のように増やして複数バッチで取得します。
 - 出力JSONはそのまま公開せず、website側の `scripts/community-log-to-article-drafts.mjs` でレビュー用ドラフトに変換してから記事化します。
 
 ## 記事化チャンネル棚卸し

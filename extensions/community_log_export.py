@@ -120,9 +120,14 @@ def is_bulk_target(channel: discord.abc.GuildChannel, guild_id: int) -> bool:
     return False
 
 
-def select_bulk_channels(guild: discord.Guild, max_channels: int) -> list[discord.abc.GuildChannel]:
+def list_bulk_target_channels(guild: discord.Guild) -> list[discord.abc.GuildChannel]:
     channels = [channel for channel in guild.channels if is_bulk_target(channel, guild.id)]
-    return sorted(channels, key=channel_sort_key)[:max_channels]
+    return sorted(channels, key=channel_sort_key)
+
+
+def select_bulk_channels(guild: discord.Guild, max_channels: int, channel_offset: int) -> tuple[list[discord.abc.GuildChannel], int]:
+    channels = list_bulk_target_channels(guild)
+    return channels[channel_offset:channel_offset + max_channels], len(channels)
 
 
 def source_payload(
@@ -273,6 +278,7 @@ async def build_bulk_export_payload(
     limit_per_source: int,
     max_channels: int,
     max_forum_threads: int,
+    channel_offset: int,
 ) -> dict:
     now = datetime.datetime.now(datetime.timezone.utc)
     after = now - datetime.timedelta(days=days)
@@ -288,6 +294,7 @@ async def build_bulk_export_payload(
             'after': after.isoformat(),
             'limit_per_source': limit_per_source,
             'max_channels_per_guild': max_channels,
+            'channel_offset_per_guild': channel_offset,
             'max_forum_threads_per_channel': max_forum_threads,
         },
         'privacy': {
@@ -295,6 +302,7 @@ async def build_bulk_export_payload(
             'content': 'message.clean_content with token/email/invite/url redaction',
             'attachments': 'attachment URLs are not exported; only counts are included',
         },
+        'guild_summaries': [],
         'exports': [],
         'errors': [],
     }
@@ -303,7 +311,18 @@ async def build_bulk_export_payload(
         if guild is None:
             payload['errors'].append({'guild_id': str(guild_id), 'error': 'guild-not-found'})
             continue
-        for channel in select_bulk_channels(guild, max_channels):
+        selected_channels, target_channel_count = select_bulk_channels(guild, max_channels, channel_offset)
+        payload['guild_summaries'].append(
+            {
+                'guild_id': str(guild.id),
+                'guild_name': guild.name,
+                'target_channel_count': target_channel_count,
+                'channel_offset': channel_offset,
+                'selected_channel_count': len(selected_channels),
+                'remaining_channel_count': max(target_channel_count - channel_offset - len(selected_channels), 0),
+            }
+        )
+        for channel in selected_channels:
             exports, errors = await export_bulk_channel(
                 guild,
                 channel,
@@ -414,6 +433,7 @@ class CommunityLogExportCog(commands.Cog):
         limit_per_source: Optional[int] = None,
         max_channels: Optional[int] = None,
         max_forum_threads: Optional[int] = None,
+        channel_offset: Optional[int] = None,
     ):
         guild = interaction.guild
         if guild is None or guild.id not in LOG_EXPORT_GUILD_IDS:
@@ -427,6 +447,7 @@ class CommunityLogExportCog(commands.Cog):
         bounded_limit = clamp_int(limit_per_source, LOG_EXPORT_BULK_MAX_MESSAGES_PER_SOURCE, 1, LOG_EXPORT_BULK_MAX_MESSAGES_PER_SOURCE)
         bounded_channels = clamp_int(max_channels, LOG_EXPORT_BULK_MAX_CHANNELS, 1, LOG_EXPORT_BULK_MAX_CHANNELS)
         bounded_threads = clamp_int(max_forum_threads, LOG_EXPORT_BULK_MAX_FORUM_THREADS, 1, LOG_EXPORT_BULK_MAX_FORUM_THREADS)
+        bounded_offset = max(channel_offset or 0, 0)
         guild_ids = LOG_EXPORT_GUILD_IDS if all_guilds else [guild.id]
 
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -437,6 +458,7 @@ class CommunityLogExportCog(commands.Cog):
             bounded_limit,
             bounded_channels,
             bounded_threads,
+            bounded_offset,
         )
         export_file, byte_size = build_bulk_export_file(payload)
         summary = payload['summary']
@@ -455,6 +477,7 @@ class CommunityLogExportCog(commands.Cog):
             content=(
                 '記事化レビュー用の一括ログJSONを出力しました。'
                 f"ソース: {summary['source_count']} / メッセージ: {summary['message_count']} / エラー: {summary['error_count']}。"
+                f'チャンネルoffset: {bounded_offset} / 最大{bounded_channels}件。'
                 f'JPはカテゴリ名に {PORTAL_TARGET_MARK} を含むチャンネル、Logsはテキスト/フォーラム全体を対象にしています。'
             ),
             file=export_file,
