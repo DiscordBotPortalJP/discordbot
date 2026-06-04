@@ -23,7 +23,7 @@ from utils.dpyexcept import excepter
 
 ARTICLE_CATEGORY_PREFIX = '記事化対象:'
 SUPPORTED_CHANNEL_TYPES = (discord.TextChannel, discord.ForumChannel)
-STARTUP_MODES = {'off', 'dry_run', 'apply'}
+STARTUP_MODES = {'off', 'dry_run'}
 
 
 @dataclass(frozen=True)
@@ -406,55 +406,24 @@ def build_audit_records(guild: discord.Guild, min_score: int) -> list[dict]:
     return records
 
 
-async def ensure_everyone_view_off(target, guild: discord.Guild, reason: str, apply_changes: bool) -> bool:
-    overwrite = target.overwrites_for(guild.default_role)
-    if overwrite.view_channel is False:
-        return False
-    if apply_changes:
-        overwrite.view_channel = False
-        await target.set_permissions(guild.default_role, overwrite=overwrite, reason=reason)
-        await asyncio.sleep(0.25)
-    return True
+def everyone_view_is_off(target, guild: discord.Guild) -> bool:
+    return target.overwrites_for(guild.default_role).view_channel is False
 
 
-async def ensure_article_category(
-    guild: discord.Guild,
-    category_name: str,
-    reason: str,
-    apply_changes: bool,
-) -> tuple[Optional[discord.CategoryChannel], list[str]]:
-    actions = []
-    category = discord.utils.get(guild.categories, name=category_name)
-    if category is None:
-        actions.append('create-category')
-        if apply_changes:
-            category = await guild.create_category(
-                category_name,
-                overwrites={guild.default_role: discord.PermissionOverwrite(view_channel=False)},
-                reason=reason,
-            )
-            await asyncio.sleep(0.5)
-    elif await ensure_everyone_view_off(category, guild, reason, apply_changes):
-        actions.append('category-everyone-view-off')
-    return category, actions
-
-
-async def apply_records_to_guild(
-    guild: discord.Guild,
-    records: list[dict],
-    apply_changes: bool,
-) -> dict:
-    reason = 'Discord Bot Portal JP article channel audit'
+def build_planned_changes(guild: discord.Guild, records: list[dict]) -> dict:
     category_actions: dict[str, list[str]] = {}
-    categories: dict[str, Optional[discord.CategoryChannel]] = {}
+    categories: dict[str, Optional[discord.CategoryChannel]] = {
+        category.name: category for category in guild.categories
+    }
 
     for category_name in sorted({record['target_category'] for record in records}):
-        try:
-            category, actions = await ensure_article_category(guild, category_name, reason, apply_changes)
-        except discord.DiscordException as error:
-            category = None
-            actions = [f'error-category:{error.__class__.__name__}']
-        categories[category_name] = category
+        actions = []
+        category = categories.get(category_name)
+        if category is None:
+            actions.append('create-category')
+            actions.append('category-everyone-view-off')
+        elif not everyone_view_is_off(category, guild):
+            actions.append('category-everyone-view-off')
         category_actions[category_name] = actions
 
     for record in records:
@@ -463,25 +432,12 @@ async def apply_records_to_guild(
             record['actions'].append('skip-channel-not-found')
             continue
 
-        try:
-            if await ensure_everyone_view_off(channel, guild, reason, apply_changes):
-                record['actions'].append('channel-everyone-view-off')
-        except discord.DiscordException as error:
-            record['actions'].append(f'error-channel-permission:{error.__class__.__name__}')
+        if not everyone_view_is_off(channel, guild):
+            record['actions'].append('channel-everyone-view-off')
 
-        target_category = categories.get(record['target_category'])
         target_category_name = current_category_name(channel)
-        should_move = target_category_name != record['target_category']
-        if should_move:
+        if target_category_name != record['target_category']:
             record['actions'].append('move-to-category')
-            if apply_changes and target_category is not None:
-                try:
-                    await channel.edit(category=target_category, reason=reason)
-                    await asyncio.sleep(0.4)
-                except discord.DiscordException as error:
-                    record['actions'].append(f'error-move:{error.__class__.__name__}')
-            elif apply_changes:
-                record['actions'].append('skip-target-category-unavailable')
 
     return {
         'categories': category_actions,
@@ -489,26 +445,13 @@ async def apply_records_to_guild(
     }
 
 
-async def audit_guild(guild: discord.Guild, apply_changes: bool, min_score: int) -> dict:
+async def audit_guild(guild: discord.Guild, min_score: int) -> dict:
     records = build_audit_records(guild, min_score)
-    if apply_changes:
-        bot_member = guild.me
-        if bot_member is None or not bot_member.guild_permissions.manage_channels:
-            dry_run_result = await apply_records_to_guild(guild, records, False)
-            return {
-                'guild_id': str(guild.id),
-                'guild_name': guild.name,
-                'mode': 'apply',
-                'min_score': min_score,
-                'matched_channels': len(records),
-                'error': 'bot-missing-manage-channels',
-                **dry_run_result,
-            }
-    result = await apply_records_to_guild(guild, records, apply_changes)
+    result = build_planned_changes(guild, records)
     return {
         'guild_id': str(guild.id),
         'guild_name': guild.name,
-        'mode': 'apply' if apply_changes else 'dry_run',
+        'mode': 'dry_run',
         'min_score': min_score,
         'matched_channels': len(records),
         **result,
@@ -557,8 +500,7 @@ def build_markdown_report(payload: dict) -> str:
 def build_summary(payload: dict) -> str:
     total = sum(result['matched_channels'] for result in payload['guilds'])
     per_guild = ', '.join(f"{result['guild_name']}: {result['matched_channels']}" for result in payload['guilds'])
-    mode_label = '適用' if payload['mode'] == 'apply' else '確認'
-    return f'{mode_label}モードで記事化対象チャンネルを棚卸ししました。対象: {total}件 ({per_guild})'
+    return f'確認モードで記事化対象チャンネルを棚卸ししました。対象: {total}件 ({per_guild})'
 
 
 def build_report_file(payload: dict) -> discord.File:
@@ -589,8 +531,7 @@ class ArticleChannelAdminCog(commands.Cog):
 
         await self.bot.wait_until_ready()
         await asyncio.sleep(5)
-        apply_changes = mode == 'apply'
-        payload = await self.run_audit_for_allowed_guilds(apply_changes, ARTICLE_CHANNEL_AUDIT_MIN_SCORE)
+        payload = await self.run_audit_for_allowed_guilds(ARTICLE_CHANNEL_AUDIT_MIN_SCORE)
         print(json.dumps({**payload, 'report': build_markdown_report(payload)}, ensure_ascii=False))
 
         report_channel = self.bot.get_channel(ARTICLE_CHANNEL_AUDIT_REPORT_CHANNEL_ID)
@@ -602,12 +543,12 @@ class ArticleChannelAdminCog(commands.Cog):
         if isinstance(report_channel, discord.abc.Messageable):
             await report_channel.send(content=build_summary(payload), file=build_report_file(payload))
 
-    async def run_audit_for_allowed_guilds(self, apply_changes: bool, min_score: int) -> dict:
+    async def run_audit_for_allowed_guilds(self, min_score: int) -> dict:
         now = datetime.datetime.now(datetime.timezone.utc)
         payload = {
             'generated_at': now.isoformat(),
             'generated_at_file': now.strftime('%Y%m%d%H%M%S'),
-            'mode': 'apply' if apply_changes else 'dry_run',
+            'mode': 'dry_run',
             'guilds': [],
         }
         for guild_id in ARTICLE_CHANNEL_AUDIT_GUILD_IDS:
@@ -626,7 +567,7 @@ class ArticleChannelAdminCog(commands.Cog):
                     }
                 )
                 continue
-            payload['guilds'].append(await audit_guild(guild, apply_changes, min_score))
+            payload['guilds'].append(await audit_guild(guild, min_score))
         return payload
 
     @app_commands.command(name='記事化チャンネル棚卸し', description='Bot開発情報チャンネルを記事化対象カテゴリへ分類します')
@@ -636,7 +577,6 @@ class ArticleChannelAdminCog(commands.Cog):
     async def audit_article_channels(
         self,
         interaction: discord.Interaction,
-        apply_changes: bool = False,
         min_score: Optional[int] = None,
     ):
         guild = interaction.guild
@@ -647,19 +587,14 @@ class ArticleChannelAdminCog(commands.Cog):
             await interaction.response.send_message('このコマンドを実行できる権限がありません。', ephemeral=True)
             return
 
-        bot_member = guild.me or guild.get_member(self.bot.user.id)
-        if apply_changes and (bot_member is None or not bot_member.guild_permissions.manage_channels):
-            await interaction.response.send_message('Botにチャンネル管理権限がないため適用できません。', ephemeral=True)
-            return
-
         await interaction.response.defer(ephemeral=True, thinking=True)
         bounded_min_score = min(max(min_score or ARTICLE_CHANNEL_AUDIT_MIN_SCORE, 1), 10)
-        result = await audit_guild(guild, apply_changes, bounded_min_score)
+        result = await audit_guild(guild, bounded_min_score)
         now = datetime.datetime.now(datetime.timezone.utc)
         payload = {
             'generated_at': now.isoformat(),
             'generated_at_file': now.strftime('%Y%m%d%H%M%S'),
-            'mode': 'apply' if apply_changes else 'dry_run',
+            'mode': 'dry_run',
             'guilds': [result],
         }
         await interaction.followup.send(content=build_summary(payload), file=build_report_file(payload), ephemeral=True)
